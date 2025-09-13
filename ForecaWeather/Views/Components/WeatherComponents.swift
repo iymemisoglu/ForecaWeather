@@ -185,6 +185,11 @@ struct HourlyForecastSection: View {
                 .cornerRadius(12)
                 .padding(.horizontal, 20)
             } else {
+                // Temperature Line Chart
+                HourlyTemperatureChart(forecasts: forecasts)
+                    .padding(.horizontal, 20)
+                
+                // Individual Hour Cards
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 16) {
                         ForEach(forecasts) { forecast in
@@ -195,6 +200,246 @@ struct HourlyForecastSection: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Hourly Temperature Chart
+struct HourlyTemperatureChart: View {
+    let forecasts: [HourlyForecast]
+    @State private var selectedIndex: Int? = nil
+    
+    private var chartData: [(time: String, temperature: Double, feelsLike: Double?)] {
+        return forecasts.compactMap { forecast in
+            guard let time = forecast.time,
+                  let temperature = forecast.temperature else { return nil }
+            return (time: timeString(from: time), temperature: temperature, feelsLike: forecast.feelsLike)
+        }
+    }
+    
+    private var minTemp: Double {
+        let temps = chartData.map(\.temperature)
+        return (temps.min() ?? 0) - 2 // Add some padding
+    }
+    
+    private var maxTemp: Double {
+        let temps = chartData.map(\.temperature)
+        return (temps.max() ?? 0) + 2 // Add some padding
+    }
+    
+    private var tempRange: Double {
+        maxTemp - minTemp
+    }
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Temperature Trend")
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+                    .foregroundColor(.secondary)
+                
+                Spacer()
+                
+                if let selectedIndex = selectedIndex,
+                   selectedIndex < chartData.count {
+                    let data = chartData[selectedIndex]
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text("\(Int(data.temperature))°")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                            .foregroundColor(.primary)
+                        if let feelsLike = data.feelsLike {
+                            Text("Feels like \(Int(feelsLike))°")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+            }
+            
+            if chartData.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "chart.line.uptrend.xyaxis")
+                        .font(.title2)
+                        .foregroundColor(.secondary)
+                    Text("No temperature data available")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .frame(height: 140)
+                .frame(maxWidth: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color(.systemGray6))
+                )
+            } else {
+                VStack(spacing: 8) {
+                    // Chart area
+                    GeometryReader { geometry in
+                        ZStack {
+                            // Background gradient
+                            LinearGradient(
+                                colors: [Color.blue.opacity(0.05), Color.cyan.opacity(0.02)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                            .cornerRadius(8)
+                            
+                            // Grid lines
+                            VStack(spacing: 0) {
+                                ForEach(0..<5) { _ in
+                                    Rectangle()
+                                        .fill(Color.gray.opacity(0.1))
+                                        .frame(height: 1)
+                                    Spacer()
+                                }
+                            }
+                            
+                            // Temperature area fill
+                            if chartData.count > 1 {
+                                Path { path in
+                                    let width = geometry.size.width
+                                    let height = geometry.size.height
+                                    let stepX = width / CGFloat(max(1, chartData.count - 1))
+                                    
+                                    // Start from bottom left
+                                    path.move(to: CGPoint(x: 0, y: height))
+                                    
+                                    for (index, data) in chartData.enumerated() {
+                                        let x = CGFloat(index) * stepX
+                                        let normalizedTemp = tempRange > 0 ? (data.temperature - minTemp) / tempRange : 0.5
+                                        let y = height - (normalizedTemp * height)
+                                        path.addLine(to: CGPoint(x: x, y: y))
+                                    }
+                                    
+                                    // Close the path to create filled area
+                                    path.addLine(to: CGPoint(x: geometry.size.width, y: height))
+                                    path.closeSubpath()
+                                }
+                                .fill(
+                                    LinearGradient(
+                                        colors: [Color.blue.opacity(0.3), Color.cyan.opacity(0.1)],
+                                        startPoint: .top,
+                                        endPoint: .bottom
+                                    )
+                                )
+                            }
+                            
+                            // Temperature line
+                            Path { path in
+                                let width = geometry.size.width
+                                let height = geometry.size.height
+                                let stepX = width / CGFloat(max(1, chartData.count - 1))
+                                
+                                for (index, data) in chartData.enumerated() {
+                                    let x = CGFloat(index) * stepX
+                                    let normalizedTemp = tempRange > 0 ? (data.temperature - minTemp) / tempRange : 0.5
+                                    let y = height - (normalizedTemp * height)
+                                    
+                                    if index == 0 {
+                                        path.move(to: CGPoint(x: x, y: y))
+                                    } else {
+                                        path.addLine(to: CGPoint(x: x, y: y))
+                                    }
+                                }
+                            }
+                            .stroke(
+                                LinearGradient(
+                                    colors: [.blue, .cyan],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                ),
+                                style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round)
+                            )
+                            
+                            // Temperature points
+                            ForEach(Array(chartData.enumerated()), id: \.offset) { index, data in
+                                let x = CGFloat(index) * (geometry.size.width / CGFloat(max(1, chartData.count - 1)))
+                                let normalizedTemp = tempRange > 0 ? (data.temperature - minTemp) / tempRange : 0.5
+                                let y = geometry.size.height - (normalizedTemp * geometry.size.height)
+                                
+                                Circle()
+                                    .fill(selectedIndex == index ? Color.blue : Color.white)
+                                    .frame(width: selectedIndex == index ? 10 : 6, height: selectedIndex == index ? 10 : 6)
+                                    .position(x: x, y: y)
+                                    .overlay(
+                                        Circle()
+                                            .stroke(selectedIndex == index ? Color.blue : Color.blue.opacity(0.6), lineWidth: selectedIndex == index ? 3 : 2)
+                                            .frame(width: selectedIndex == index ? 16 : 12, height: selectedIndex == index ? 16 : 12)
+                                            .position(x: x, y: y)
+                                    )
+                                    .onTapGesture {
+                                        withAnimation(.easeInOut(duration: 0.2)) {
+                                            selectedIndex = selectedIndex == index ? nil : index
+                                        }
+                                    }
+                            }
+                        }
+                    }
+                    .frame(height: 120)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color(.systemBackground))
+                            .shadow(color: .black.opacity(0.05), radius: 2, x: 0, y: 1)
+                    )
+                    
+                    // X-axis labels (time)
+                    HStack {
+                        ForEach(Array(chartData.enumerated()), id: \.offset) { index, data in
+                            if index % max(1, chartData.count / 6) == 0 || index == chartData.count - 1 {
+                                Text(data.time)
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .center)
+                            } else {
+                                Spacer()
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 8)
+                }
+            }
+        }
+    }
+    
+    private func timeString(from timeString: String?) -> String {
+        guard let timeString = timeString else { return "N/A" }
+        
+        let dateFormats = [
+            "yyyy-MM-dd'T'HH:mm:ss",
+            "yyyy-MM-dd'T'HH:mm:ss.SSS",
+            "yyyy-MM-dd'T'HH:mm:ss'Z'",
+            "yyyy-MM-dd HH:mm:ss",
+            "HH:mm:ss",
+            "HH:mm"
+        ]
+        
+        for format in dateFormats {
+            let formatter = DateFormatter()
+            formatter.dateFormat = format
+            if let date = formatter.date(from: timeString) {
+                let timeFormatter = DateFormatter()
+                timeFormatter.dateFormat = "HH:mm"
+                return timeFormatter.string(from: date)
+            }
+        }
+        
+        if timeString.contains("T") {
+            let components = timeString.components(separatedBy: "T")
+            if components.count > 1 {
+                let timePart = components[1]
+                let timeComponents = timePart.components(separatedBy: ":")
+                if timeComponents.count >= 2 {
+                    return "\(timeComponents[0]):\(timeComponents[1])"
+                }
+            }
+        }
+        
+        if timeString.contains(":") {
+            return timeString
+        }
+        
+        return "N/A"
     }
 }
 
